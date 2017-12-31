@@ -1,69 +1,125 @@
-from nltk.tokenize import RegexpTokenizer
-from stop_words import get_stop_words
-from nltk.stem.porter import PorterStemmer
-from gensim import corpora, models
+'''
+Created on 2017-12-29
+@author: Ozan Tepe , Ahmad Alkhairat
+'''
+import os
+import pyLDAvis.gensim as gensimvis
+import pyLDAvis
+import csv
 import warnings
 warnings.filterwarnings(action='ignore', category=UserWarning, module='gensim')
 import gensim
-import pyLDAvis
-import pyLDAvis.gensim
+from gensim.models import LdaModel
+from properties import tweets_path
+from nltk.tokenize import RegexpTokenizer
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer
+from properties import username
+
+tweets = []
+docs = []
 
 
-tokenizer = RegexpTokenizer(r'\w+')
-
-# create English stop words list
-en_stop = get_stop_words('en')
-
-# Create p_stemmer of class PorterStemmer
-p_stemmer = PorterStemmer()
+def read_tweets():
     
-# create sample documents
-doc_a = "Brocolli is good to eat. My brother likes to eat good brocolli, but not my mother."
-doc_b = "My mother spends a lot of time driving my brother around to baseball practice."
-doc_c = "Some health experts suggest that driving may cause increased tension and blood pressure."
-doc_d = "I often feel pressure to perform well at school, but my mother never seems to drive my brother to do better."
-doc_e = "Health professionals say that brocolli is good for your health." 
+    # Read tweets from files
+    if os.path.isdir(tweets_path):
+        files = os.listdir(tweets_path)
+        for filename in files:
+            if username in filename:
+                fullpath = os.path.join(tweets_path, filename)
+                with open(fullpath, 'r', encoding='utf-8') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for row in reader:
+                        tweets.append(row['text'])
+        print("Tweets loaded from file %s successfully..", username)
+    else:
+        print("Couldn't find file path..")
 
-# compile sample documents into a list
-doc_set = [doc_a, doc_b, doc_c, doc_d, doc_e]
 
-# list for tokenized documents in loop
-texts = []
-
-# loop through document list
-for i in doc_set:
+def preprocess_tweets():
     
-    # clean and tokenize document string
-    raw = i.lower()
-    tokens = tokenizer.tokenize(raw)
+    # Creating classes for cleaning process
+    tokenizer = RegexpTokenizer(r'[a-zA-Z]+')
+    en_stop = set(stopwords.words('english'))
+    en_stop.add('http')
+    p_stemmer = PorterStemmer()
+    for tweet in tweets:
+        
+        # Tokenization
+        tokens = tokenizer.tokenize(tweet.lower())   
+        # print(tokens)
+        print("Tokenization completed..")
+        
+        # Delete tokens with one length
+        for t in tokens:
+            if len(t) == 1:
+                tokens.remove(t)
+        
+        # Stop words removal from tokens
+        stopped_tokens = [i for i in tokens if not i in en_stop]
+        # print(stopped_tokens)
+        print("Stop words removed from tokens..")    
+        
+        # Stemming
+        stemmed_tokens = [p_stemmer.stem(i) for i in stopped_tokens]
+        print("Stemming completed..")
+        
+        # Add cleaned tokens to list
+        docs.append(stemmed_tokens)
+        print("Cleaned tokens added to list..")
+        
+    print("Preprocessing completed..")
 
-    # remove stop words from tokens
-    stopped_tokens = [i for i in tokens if not i in en_stop]
+
+def implement_lda():
     
-    # stem tokens
-    stemmed_tokens = [p_stemmer.stem(i) for i in stopped_tokens]
+    # Turn our tokenized documents into a id <-> term dictionary
+    dictionary = gensim.corpora.Dictionary(docs)
+    dictionary.save('my_dictionary.dict')
+    print("Dictionary saved..")
     
-    # add tokens to list
-    texts.append(stemmed_tokens)
-
-# turn our tokenized documents into a id <-> term dictionary
-dictionary2 = corpora.Dictionary(texts)
+    # Convert tokenized documents into a document-term matrix
+    doc_term_matrix = [dictionary.doc2bow(doc) for doc in docs]
+    gensim.corpora.MmCorpus.serialize('my_corpus.mm', doc_term_matrix)
+    print("Corpus saved..")
     
-# convert tokenized documents into a document-term matrix
-corpus = [dictionary2.doc2bow(text) for text in texts]
-
-# generate LDA model
-ldamodel2 = gensim.models.ldamulticore.LdaMulticore(corpus, num_topics=4, id2word = dictionary2,chunksize=1000, passes=20,workers=30)
-
-doclda = ldamodel2[corpus]
-
-for doc in doclda:
-    print(doc)
+    # Creating the object for LDA model using gensim library
+    Lda = gensim.models.ldamodel.LdaModel
     
-lda_vi=pyLDAvis.gensim.prepare(ldamodel2,corpus,dictionary2)
+    # Running and Trainign LDA model on the document term matrix.
+    ldamodel = Lda(doc_term_matrix, num_topics=10, id2word=dictionary, passes=10)
+    '''
+    for i in ldamodel.print_topics(): 
+        for j in i: 
+            print(j)
+    '''
+    ldamodel.save('my_topic.model')
+    print("LDA model saved..")
+    
+    
 
-pyLDAvis.display(lda_vi)
+def show_results():
+        
+    # Load dictionary
+    loaded_dict = gensim.corpora.Dictionary.load('my_dictionary.dict')
+    
+    # Load corpus
+    loaded_corpus = gensim.corpora.MmCorpus('my_corpus.mm')
+    
+    # Load lda model
+    loaded_model = LdaModel.load('my_topic.model')
+    
+    # Visualization of results
+    vis_data = gensimvis.prepare(loaded_model, loaded_corpus, loaded_dict)
+    pyLDAvis.show(vis_data)
 
+
+if __name__ == '__main__':
+    read_tweets()
+    preprocess_tweets()
+    implement_lda()
+    show_results()
 
   
     
